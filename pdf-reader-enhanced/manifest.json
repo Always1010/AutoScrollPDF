@@ -1,0 +1,58 @@
+{
+   "action": {
+   },
+   "background": {
+      "service_worker": "worker.js"
+   },
+   "commands": {
+      "_execute_action": {
+         "description": "Execute Action"
+      }
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "js": [ "data/watch.js" ],
+      "match_origin_as_fallback": true,
+      "matches": [ "\u003Call_urls>" ],
+      "run_at": "document_start"
+   } ],
+   "content_security_policy": {
+      "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+   },
+   "default_locale": "en",
+   "description": "__MSG_description__",
+   "file_handlers": [ {
+      "accept": {
+         "application/pdf": [ ".pdf" ]
+      },
+      "action": "/data/pdf.js/web/viewer.html?context=explorer",
+      "launch_type": "multiple-clients",
+      "name": "Open with PDF Reader"
+   } ],
+   "homepage_url": "https://webextension.org/listing/pdf-reader.html",
+   "host_permissions": [ "\u003Call_urls>" ],
+   "icons": {
+      "128": "data/icons/128.png",
+      "16": "data/icons/16.png",
+      "256": "data/icons/256.png",
+      "32": "data/icons/32.png",
+      "48": "data/icons/48.png",
+      "512": "data/icons/512.png",
+      "64": "data/icons/64.png"
+   },
+   "incognito": "split",
+   "manifest_version": 3,
+   "name": "PDF Reader and Editor (Auto-Scroll)",
+   "options_ui": {
+      "page": "data/options/index.html"
+   },
+   "permissions": [ "storage", "contextMenus", "favicon" ],
+   "storage": {
+      "managed_schema": "schema.json"
+   },
+   "version": "0.4.8",
+   "web_accessible_resources": [ {
+      "matches": [ "*://*/*" ],
+      "resources": [ "data/pdf.js/web/viewer.html" ]
+   } ]
+}

@@ -1,0 +1,50 @@
+.toolbarButton.copyLink::before {
+  -webkit-mask-image: url(/data/viewer/copy.svg);
+  mask-image: url(/data/viewer/copy.svg);
+}
+
+.toolbarButton.cropButton::before {
+  -webkit-mask-image: url(/data/viewer/crop.svg);
+  mask-image: url(/data/viewer/crop.svg);
+}
+
+.toolbarButton.cutButton::before {
+  -webkit-mask-image: url(/data/viewer/cut.svg);
+  mask-image: url(/data/viewer/cut.svg);
+}
+
+.toolbarButton.customZoom::before {
+  -webkit-mask-image: url(/data/viewer/zoom.svg);
+  mask-image: url(/data/viewer/zoom.svg);
+}
+
+.toolbarButton.defaultViewer::before {
+  -webkit-mask-image: url(/data/viewer/default.svg);
+  mask-image: url(/data/viewer/default.svg);
+}
+.toolbarButton.autoScrollButton::before {
+  -webkit-mask-image: url(/data/viewer/autoscroll.svg);
+  mask-image: url(/data/viewer/autoscroll.svg);
+}
+
+.toolbarButton.autoScrollButton.toggled {
+  background-color: var(--button-hover-color);
+}
+
+.toolbarButton:disabled {
+  pointer-events: none;
+}
+
+body {
+  --editor-toolbar-base-offset: 165px;
+}
+@media all and (max-width: 750px){
+  body {
+    --editor-toolbar-base-offset: 42px;
+  }
+}
+
+notification-view {
+  --pos-top: 42px;
+  --pos-right: 22px;
+}
