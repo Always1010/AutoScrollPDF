@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PDF Reader :: Options Page</title>
+  <link rel="stylesheet" type="text/css" href="index.css">
+</head>
+<body>
+  <div class="two">
+    <label for="saveas">Save method</label>
+    <select id="saveas">
+      <option value="save">Save automatically</option>
+      <option value="save-as">Ask where to save</option>
+    </select>
+  </div>
+  <textarea rows="8" placeholder="apply custom styles to the PDF viewer" id="styles"></textarea>
+
+  <p>
+    <input type="button" value="Reset" id="reset">
+    <input type="button" value="Support Development" id="support"> - <input type="button" value="Save Options" id="save">
+    <span id="toast"></span>
+  </p>
+  <script type="text/javascript" src="index.js"></script>
+</body>
+</html>
