@@ -42,6 +42,12 @@
    },
    "incognito": "split",
    "manifest_version": 3,
+   "mime_types_handler": {
+      "application/pdf": {
+         "can_embed": true,
+         "handler_url": "data/viewer/mime-handler.html"
+      }
+   },
    "name": "PDF Reader and Editor (Auto-Scroll)",
    "options_ui": {
       "page": "data/options/index.html"

@@ -78,7 +78,7 @@ const favicon = href => {
 };
 document.addEventListener('document-open', e => {
   const {args} = e.detail;
-  href = args[0]?.url || '';
+  href = meta.get('source') || args[0]?.url || '';
   history.replaceState('', '', '/data/pdf.js/web/viewer.html?file=' + href);
   try {
     favicon(href.split('#')[0]);

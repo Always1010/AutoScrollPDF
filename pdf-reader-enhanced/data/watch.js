@@ -1,8 +1,17 @@
-const type = document.contentType || '';
+const type = (document.contentType || '').toLowerCase();
+const pdfTypes = new Set([
+  'application/pdf',
+  'application/acrobat',
+  'application/nappdf',
+  'application/x-pdf',
+  'image/pdf',
+  'text/pdf',
+  'text/x-pdf'
+]);
 
 const redirect = () => {
   // allow opening with default PDF viewer
-  if (location.search.includes('native-view')) {
+  if (new URLSearchParams(location.search).has('native-view')) {
     return;
   }
   const next = () => {
@@ -35,11 +44,11 @@ const redirect = () => {
   }
 };
 
-if (type === 'application/pdf') {
+if (pdfTypes.has(type)) {
   redirect();
 }
 else if (type === 'application/octet-stream') {
-  if (location.href.toLowerCase().includes('.pdf')) {
+  if (/\.pdf(?:$|[?#])/i.test(location.href)) {
     redirect();
   }
 }
