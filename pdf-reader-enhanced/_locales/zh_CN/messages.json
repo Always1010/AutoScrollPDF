@@ -1,5 +1,81 @@
 {
    "description": {
       "message": "基于Mozilla's PDF.js库的通用便携式文档格式(PDF)查看器。"
+   },
+   "auto_scroll_title": {
+      "message": "自动滚动"
+   },
+   "auto_scroll_settings": {
+      "message": "自动滚动设置"
+   },
+   "auto_scroll_start_title": {
+      "message": "开始自动滚动（Ctrl/Command + Shift + A）"
+   },
+   "auto_scroll_pause_title": {
+      "message": "暂停自动滚动（Ctrl/Command + Shift + A）"
+   },
+   "auto_scroll_mode": {
+      "message": "当前模式"
+   },
+   "auto_scroll_mode_vertical": {
+      "message": "垂直连续滚动"
+   },
+   "auto_scroll_mode_horizontal": {
+      "message": "水平连续滚动"
+   },
+   "auto_scroll_mode_wrapped": {
+      "message": "平铺连续滚动"
+   },
+   "auto_scroll_mode_page": {
+      "message": "逐页滚动"
+   },
+   "auto_scroll_speed": {
+      "message": "滚动速度"
+   },
+   "auto_scroll_page_interval": {
+      "message": "每页停留"
+   },
+   "auto_scroll_seconds": {
+      "message": "$TIME$ 秒",
+      "placeholders": {
+         "time": {
+            "content": "$1"
+         }
+      }
+   },
+   "auto_scroll_slow": {
+      "message": "慢"
+   },
+   "auto_scroll_fast": {
+      "message": "快"
+   },
+   "auto_scroll_decrease": {
+      "message": "降低"
+   },
+   "auto_scroll_increase": {
+      "message": "提高"
+   },
+   "auto_scroll_pause_interaction": {
+      "message": "滚动或选择文字时短暂停顿"
+   },
+   "auto_scroll_playing": {
+      "message": "播放中"
+   },
+   "auto_scroll_stopped": {
+      "message": "已暂停"
+   },
+   "auto_scroll_interaction_paused": {
+      "message": "临时暂停"
+   },
+   "auto_scroll_completed": {
+      "message": "已完成"
+   },
+   "auto_scroll_remaining": {
+      "message": "预计剩余 $TIME$",
+      "placeholders": {
+         "time": {
+            "content": "$1"
+         }
+      }
    }
 }

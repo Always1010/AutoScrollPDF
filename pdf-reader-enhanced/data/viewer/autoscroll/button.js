@@ -1,7 +1,6 @@
 /* global PDFViewerApplication */
 'use strict';
 
-// ScrollMode enum matching PDF.js internals
 const ScrollMode = {
   VERTICAL: 0,
   HORIZONTAL: 1,
@@ -9,29 +8,59 @@ const ScrollMode = {
   PAGE: 3
 };
 
+const AUTO_SCROLL_DEFAULTS = {
+  autoScrollPixelsPerSecond: 40,
+  autoScrollPageInterval: 10,
+  autoScrollPauseOnInteraction: true
+};
+
+const clamp = (value, min, max, fallback) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
+};
+
+const message = (key, substitutions, fallback = '') => {
+  const translated = substitutions === undefined || substitutions === null
+    ? chrome.i18n.getMessage(key)
+    : chrome.i18n.getMessage(key, substitutions);
+  return translated || fallback;
+};
+
 class AutoScrollController {
   constructor() {
     this.enabled = false;
-    this.speed = 50; // 1-100, default medium (50 => 250 px/s, linear)
-    this._scrollAccumulator = 0; // sub-pixel scroll accumulator (prevents rounding to zero)
+    this.pixelsPerSecond = AUTO_SCROLL_DEFAULTS.autoScrollPixelsPerSecond;
+    this.pageInterval = AUTO_SCROLL_DEFAULTS.autoScrollPageInterval;
+    this.pauseOnInteraction = AUTO_SCROLL_DEFAULTS.autoScrollPauseOnInteraction;
+    this.lastReason = 'initial';
+    this.onStateChange = () => {};
+    this.onTimeChange = () => {};
+
+    this._container = null;
     this._rafId = null;
     this._lastFrameTime = 0;
-    this._pageAccumulator = 0; // for PAGE mode timing
-    this._lastScrollTop = 0;   // track position after our own scrolls (to detect external ones)
-    this._lastScrollLeft = 0;
-    this._container = null;
-    this._timerEl = null;
-    this._onUserScroll = this._onUserScroll.bind(this);
+    this._lastTimerUpdate = 0;
+    this._scrollAccumulator = 0;
+    this._pageAccumulator = 0;
+    this._interactionPausedUntil = 0;
+    this._wasTemporarilyPaused = false;
+    this._lastMode = null;
+
     this._tick = this._tick.bind(this);
+    this._onInteraction = this._onInteraction.bind(this);
+    this._onNavigationKey = this._onNavigationKey.bind(this);
+    this._onVisibilityChange = this._onVisibilityChange.bind(this);
   }
 
   get container() {
-    // Always try to get the container (don't cache failures)
     try {
-      const c = PDFViewerApplication?.pdfViewer?.container;
-      if (c) this._container = c;
-      return c || null;
-    } catch (e) {
+      const container = PDFViewerApplication?.pdfViewer?.container;
+      if (container) {
+        this._container = container;
+      }
+      return container || null;
+    }
+    catch (e) {
       return null;
     }
   }
@@ -39,56 +68,184 @@ class AutoScrollController {
   get scrollMode() {
     try {
       return PDFViewerApplication?.pdfViewer?.scrollMode ?? ScrollMode.VERTICAL;
-    } catch (e) {
+    }
+    catch (e) {
       return ScrollMode.VERTICAL;
     }
   }
 
-  start() {
-    if (this.enabled) return;
-    const c = this.container;
-    if (!c) {
-      // PDF.js not ready yet — try again in 500ms
-      setTimeout(() => this.start(), 500);
-      return;
-    }
-    this.enabled = true;
-    this._lastFrameTime = 0;
-    this._pageAccumulator = 0;
-    this._scrollAccumulator = 0;
-    this._container.addEventListener('scroll', this._onUserScroll, { passive: true });
-    this._rafId = requestAnimationFrame(this._tick);
+  get temporarilyPaused() {
+    return this.enabled && performance.now() < this._interactionPausedUntil;
   }
 
-  stop() {
-    if (!this.enabled) return;
+  setPixelsPerSecond(value) {
+    this.pixelsPerSecond = clamp(value, 5, 200, AUTO_SCROLL_DEFAULTS.autoScrollPixelsPerSecond);
+    this._scrollAccumulator = 0;
+    this._emitTime(true);
+  }
+
+  setPageInterval(value) {
+    this.pageInterval = clamp(value, 2, 30, AUTO_SCROLL_DEFAULTS.autoScrollPageInterval);
+    this._pageAccumulator = 0;
+    this._emitTime(true);
+  }
+
+  setPauseOnInteraction(value) {
+    this.pauseOnInteraction = Boolean(value);
+    if (!this.pauseOnInteraction) {
+      this._interactionPausedUntil = 0;
+    }
+    this._emitState('settings');
+  }
+
+  start() {
+    if (this.enabled) {
+      return true;
+    }
+
+    const container = this.container;
+    if (!container) {
+      return false;
+    }
+
+    this.enabled = true;
+    this._lastFrameTime = 0;
+    this._lastTimerUpdate = 0;
+    this._scrollAccumulator = 0;
+    this._pageAccumulator = 0;
+    this._interactionPausedUntil = 0;
+    this._lastMode = this.scrollMode;
+    this._attachInteractionListeners(container);
+    this._rafId = requestAnimationFrame(this._tick);
+    this._emitState('start');
+    this._emitTime(true);
+    return true;
+  }
+
+  stop(reason = 'manual') {
+    if (!this.enabled) {
+      return;
+    }
+
     this.enabled = false;
-    if (this._rafId) {
+    if (this._rafId !== null) {
       cancelAnimationFrame(this._rafId);
       this._rafId = null;
     }
-    if (this._container) {
-      this._container.removeEventListener('scroll', this._onUserScroll);
-    }
-    this._lastScrollTop = 0;
-    this._lastScrollLeft = 0;
+    this._detachInteractionListeners();
+    this._interactionPausedUntil = 0;
+    this._wasTemporarilyPaused = false;
+    this._lastFrameTime = 0;
+    this._emitState(reason);
+    this.onTimeChange(null);
   }
 
   toggle() {
     if (this.enabled) {
       this.stop();
-    } else {
-      this.start();
+      return false;
     }
-    return this.enabled;
+    return this.start();
   }
 
-  setSpeed(n) {
-    this.speed = Math.max(1, Math.min(100, Number(n) || 50));
+  pauseForInteraction() {
+    if (!this.enabled || !this.pauseOnInteraction) {
+      return;
+    }
+
+    this._interactionPausedUntil = performance.now() + 2000;
+    this._lastFrameTime = 0;
+    if (!this._wasTemporarilyPaused) {
+      this._wasTemporarilyPaused = true;
+      this._emitState('interaction');
+    }
+  }
+
+  estimateTimeRemaining() {
+    if (!this.enabled) {
+      return null;
+    }
+
+    const container = this.container;
+    if (!container) {
+      return null;
+    }
+
+    const mode = this.scrollMode;
+    if (mode === ScrollMode.PAGE) {
+      const current = PDFViewerApplication?.page || 1;
+      const total = PDFViewerApplication?.pagesCount || 1;
+      const remainingPages = Math.max(0, total - current);
+      return Math.max(0, remainingPages * this.pageInterval +
+        Math.max(0, this.pageInterval - this._pageAccumulator));
+    }
+
+    const remainingPixels = mode === ScrollMode.HORIZONTAL
+      ? container.scrollWidth - container.scrollLeft - container.clientWidth
+      : container.scrollHeight - container.scrollTop - container.clientHeight;
+    return Math.max(0, remainingPixels / this.pixelsPerSecond);
+  }
+
+  _attachInteractionListeners(container) {
+    container.addEventListener('wheel', this._onInteraction, {passive: true, capture: true});
+    container.addEventListener('pointerdown', this._onInteraction, {passive: true, capture: true});
+    container.addEventListener('pointermove', this._onInteraction, {passive: true, capture: true});
+    document.addEventListener('keydown', this._onNavigationKey, true);
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
+  }
+
+  _detachInteractionListeners() {
+    if (this._container) {
+      this._container.removeEventListener('wheel', this._onInteraction, true);
+      this._container.removeEventListener('pointerdown', this._onInteraction, true);
+      this._container.removeEventListener('pointermove', this._onInteraction, true);
+    }
+    document.removeEventListener('keydown', this._onNavigationKey, true);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
+  }
+
+  _onInteraction(event) {
+    if (event.type !== 'pointermove' || event.buttons !== 0) {
+      this.pauseForInteraction();
+    }
+  }
+
+  _onNavigationKey(event) {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', ' ']
+      .includes(event.key)) {
+      this.pauseForInteraction();
+    }
+  }
+
+  _onVisibilityChange() {
+    this._lastFrameTime = 0;
+    this._pageAccumulator = Math.min(this._pageAccumulator, this.pageInterval);
   }
 
   _tick(timestamp) {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      return;
+    }
+
+    const mode = this.scrollMode;
+    if (mode !== this._lastMode) {
+      this._lastMode = mode;
+      this._scrollAccumulator = 0;
+      this._pageAccumulator = 0;
+      this._emitState('mode');
+      this._emitTime(true);
+    }
+
+    if (document.hidden || this.temporarilyPaused) {
+      this._lastFrameTime = 0;
+      this._rafId = requestAnimationFrame(this._tick);
+      return;
+    }
+
+    if (this._wasTemporarilyPaused) {
+      this._wasTemporarilyPaused = false;
+      this._emitState('resume');
+    }
 
     if (this._lastFrameTime === 0) {
       this._lastFrameTime = timestamp;
@@ -96,10 +253,9 @@ class AutoScrollController {
       return;
     }
 
-    const dt = (timestamp - this._lastFrameTime) / 1000; // seconds
+    const deltaSeconds = Math.min(0.1, Math.max(0, (timestamp - this._lastFrameTime) / 1000));
     this._lastFrameTime = timestamp;
 
-    const mode = this.scrollMode;
     const container = this.container;
     if (!container) {
       this._rafId = requestAnimationFrame(this._tick);
@@ -107,297 +263,402 @@ class AutoScrollController {
     }
 
     if (mode === ScrollMode.PAGE) {
-      // Page mode: accumulate time, advance page when threshold reached
-      const msPerPage = Math.max(500, 30000 / this.speed); // 30s at speed 1, 0.5s at speed 100
-      this._pageAccumulator += dt * 1000;
-
-      if (this._pageAccumulator >= msPerPage) {
-        this._pageAccumulator -= msPerPage;
-        const currentPage = PDFViewerApplication?.page;
-        const totalPages = PDFViewerApplication?.pagesCount;
-        if (currentPage && totalPages && currentPage < totalPages) {
-
-          PDFViewerApplication.page = currentPage + 1;
-        } else {
-          // Reached last page
-          this.stop();
-          this._updateButtonState();
-          return;
-        }
-      }
-    } else {
-      // Continuous scroll modes: VERTICAL, HORIZONTAL, WRAPPED
-      // Linear: speed 1→5px/s, speed 50→250px/s, speed 100→500px/s
-      const pixelsPerSecond = this.speed * 5;
-      const pixelDelta = pixelsPerSecond * dt;
-      // Accumulate sub-pixel scroll amounts so low speeds still move
-      this._scrollAccumulator += pixelDelta;
-      const wholePixels = Math.trunc(this._scrollAccumulator);
-      if (wholePixels === 0) {
-        this._rafId = requestAnimationFrame(this._tick);
-        return;
-      }
-      this._scrollAccumulator -= wholePixels;
-
-      if (mode === ScrollMode.HORIZONTAL) {
-        const maxScroll = container.scrollWidth - container.clientWidth;
-        if (container.scrollLeft >= maxScroll - 1) {
-          this.stop();
-          this._updateButtonState();
-          return;
-        }
-        container.scrollLeft += wholePixels;
-      } else {
-        // VERTICAL or WRAPPED: scroll vertically
-        const maxScroll = container.scrollHeight - container.clientHeight;
-        if (container.scrollTop >= maxScroll - 1) {
-          this.stop();
-          this._updateButtonState();
-          return;
-        }
-        container.scrollTop += wholePixels;
-      }
+      this._advancePage(deltaSeconds);
+    }
+    else {
+      this._advanceContinuous(container, mode, deltaSeconds);
     }
 
-    // Record actual scroll position so _onUserScroll can distinguish our scrolls
-    // from external ones (e.g. PDF.js image-rendering reflows vs. user mouse wheel)
-    const c = this.container;
-    if (c) {
-      this._lastScrollTop = c.scrollTop;
-      this._lastScrollLeft = c.scrollLeft;
+    if (!this.enabled) {
+      return;
     }
 
-    this._updateTimeRemaining();
+    this._emitTime(false, timestamp);
     this._rafId = requestAnimationFrame(this._tick);
   }
 
-  _onUserScroll() {
-    // No-op: auto-scroll no longer stops on external scroll events.
-    // (Previously tried time-window and position-delta approaches,
-    //  both caused false positives with PDF.js internal reflows or
-    //  accidental trackpad touches. Use the button or Ctrl+Shift+A to stop.)
-  }
-
-  _updateButtonState() {
-    const button = document.querySelector('.autoScrollButton');
-    const panel = document.getElementById('autoScrollPanel');
-    if (button) {
-      button.classList.toggle('toggled', this.enabled);
-      button.setAttribute('aria-pressed', String(this.enabled));
-    }
-    if (panel) {
-      this.enabled ? panel.classList.remove('hidden') : panel.classList.add('hidden');
-      panel.hidden = !this.enabled;
-    }
-    // Also update timer visibility
-    if (this._timerEl) {
-      this._timerEl.style.display = this.enabled ? '' : 'none';
-    }
-  }
-
-  _updateTimeRemaining() {
-    if (!this._timerEl) return;
-    if (!this.enabled) {
-      this._timerEl.style.display = 'none';
+  _advancePage(deltaSeconds) {
+    this._pageAccumulator += deltaSeconds;
+    if (this._pageAccumulator < this.pageInterval) {
       return;
     }
-    this._timerEl.style.display = '';
-    const container = this.container;
-    if (!container) return;
 
-    let timeSec;
-    const mode = this.scrollMode;
+    this._pageAccumulator = 0;
+    const currentPage = PDFViewerApplication?.page;
+    const totalPages = PDFViewerApplication?.pagesCount;
+    if (currentPage && totalPages && currentPage < totalPages) {
+      PDFViewerApplication.page = currentPage + 1;
+    }
+    else {
+      this.stop('complete');
+    }
+  }
 
-    if (mode === ScrollMode.PAGE) {
-      const current = PDFViewerApplication?.page || 1;
-      const total = PDFViewerApplication?.pagesCount || 1;
-      const remaining = total - current;
-      const msPerPage = Math.max(500, 30000 / this.speed);
-      timeSec = (remaining * msPerPage) / 1000;
-    } else if (mode === ScrollMode.HORIZONTAL) {
-      const remaining = container.scrollWidth - container.scrollLeft - container.clientWidth;
-      timeSec = remaining / (this.speed * 5);
-    } else {
-      // VERTICAL or WRAPPED
-      const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
-      timeSec = remaining / (this.speed * 5);
+  _advanceContinuous(container, mode, deltaSeconds) {
+    this._scrollAccumulator += this.pixelsPerSecond * deltaSeconds;
+    const wholePixels = Math.trunc(this._scrollAccumulator);
+    if (wholePixels === 0) {
+      return;
+    }
+    this._scrollAccumulator -= wholePixels;
+
+    const horizontal = mode === ScrollMode.HORIZONTAL;
+    const position = horizontal ? container.scrollLeft : container.scrollTop;
+    const maximum = horizontal
+      ? container.scrollWidth - container.clientWidth
+      : container.scrollHeight - container.clientHeight;
+
+    if (position >= maximum - 1) {
+      this.stop('complete');
+      return;
     }
 
-    // Format: "3m 15s" or "45s"
-    if (timeSec >= 3600) {
-      const h = Math.floor(timeSec / 3600);
-      const m = Math.floor((timeSec % 3600) / 60);
-      this._timerEl.textContent = h + 'h ' + m + 'm';
-    } else if (timeSec >= 60) {
-      const m = Math.floor(timeSec / 60);
-      const s = Math.floor(timeSec % 60);
-      this._timerEl.textContent = m + 'm ' + s + 's';
-    } else {
-      this._timerEl.textContent = Math.floor(timeSec) + 's';
+    const nextPosition = Math.min(maximum, position + wholePixels);
+    if (horizontal) {
+      container.scrollLeft = nextPosition;
     }
+    else {
+      container.scrollTop = nextPosition;
+    }
+
+    if (nextPosition >= maximum - 1) {
+      this.stop('complete');
+    }
+  }
+
+  _emitState(reason) {
+    this.lastReason = reason;
+    this.onStateChange({
+      enabled: this.enabled,
+      temporarilyPaused: this.temporarilyPaused,
+      mode: this.scrollMode,
+      reason
+    });
+  }
+
+  _emitTime(force, timestamp = performance.now()) {
+    if (!this.enabled) {
+      return;
+    }
+    if (!force && timestamp - this._lastTimerUpdate < 1000) {
+      return;
+    }
+    this._lastTimerUpdate = timestamp;
+    this.onTimeChange(this.estimateTimeRemaining());
   }
 }
 
-// Singleton controller
 const autoScroll = new AutoScrollController();
 
 document.addEventListener('DOMContentLoaded', () => {
-  // ===== Create the wrapper container (matches toolbarButtonWithContainer pattern) =====
+  const anchor = document.querySelector('.toolbar #editorStamp');
+  if (!anchor) {
+    return;
+  }
+
   const wrapper = document.createElement('div');
   wrapper.id = 'autoScrollWrapper';
-  wrapper.className = 'toolbarButtonWithContainer';
+  wrapper.className = 'toolbarButtonWithContainer autoScrollWrapper';
 
-  // ===== Create the toggle button =====
   const button = document.createElement('button');
   button.className = 'toolbarButton autoScrollButton';
   button.type = 'button';
-  button.tabIndex = 0;
-  button.title = 'Auto Scroll (Ctrl/Command + Shift + A)\n\nClick to toggle automatic scrolling.\nA speed slider will appear when active.';
-  button.setAttribute('aria-expanded', 'false');
-  button.setAttribute('aria-haspopup', 'true');
-  button.setAttribute('aria-controls', 'autoScrollPanel');
+  button.disabled = true;
   button.setAttribute('aria-pressed', 'false');
 
-  const span = document.createElement('span');
-  span.textContent = 'Auto Scroll';
-  button.appendChild(span);
+  const buttonLabel = document.createElement('span');
+  button.appendChild(buttonLabel);
 
-  button.onclick = (e) => {
-    e.stopPropagation();
-    const isActive = autoScroll.toggle();
-    button.classList.toggle('toggled', isActive);
-    button.setAttribute('aria-pressed', String(isActive));
-    button.setAttribute('aria-expanded', String(isActive));
-    const panel = document.getElementById('autoScrollPanel');
-    if (panel) {
-      isActive ? showPanel() : hidePanel();
-    }
-    autoScroll._updateTimeRemaining();
-  };
+  const settingsButton = document.createElement('button');
+  settingsButton.className = 'toolbarButton autoScrollSettingsButton';
+  settingsButton.type = 'button';
+  settingsButton.setAttribute('aria-expanded', 'false');
+  settingsButton.setAttribute('aria-haspopup', 'true');
+  settingsButton.setAttribute('aria-controls', 'autoScrollPanel');
+  settingsButton.title = message('auto_scroll_settings', null, 'Auto-scroll settings');
+  settingsButton.setAttribute('aria-label', settingsButton.title);
+  settingsButton.appendChild(document.createElement('span'));
 
-  // ===== Create the speed control panel (doorhanger) =====
   const panel = document.createElement('div');
   panel.id = 'autoScrollPanel';
-  panel.className = 'editorParamsToolbar doorHangerRight menu';
-  panel.classList.add('hidden');
+  panel.className = 'editorParamsToolbar doorHangerRight menu autoScrollPanel hidden';
   panel.hidden = true;
-  panel.style.cssText = 'min-width: 280px; padding: 8px;';
-
-  // Helpers: must toggle both CSS class AND HTML attribute (CSS rule: .hidden,[hidden]{display:none!important})
-  const showPanel = () => { panel.classList.remove('hidden'); panel.hidden = false; };
-  const hidePanel = () => { panel.classList.add('hidden'); panel.hidden = true; };
 
   const panelContent = document.createElement('div');
-  panelContent.className = 'menuContainer';
-  panelContent.style.cssText = 'padding: 8px 12px;';
+  panelContent.className = 'menuContainer autoScrollPanelContent';
 
-  // Speed label row
-  const labelRow = document.createElement('div');
-  labelRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
+  const header = document.createElement('div');
+  header.className = 'autoScrollHeader';
+  const heading = document.createElement('strong');
+  heading.textContent = message('auto_scroll_title', null, 'Auto scroll');
+  const state = document.createElement('span');
+  state.className = 'autoScrollState';
+  header.append(heading, state);
 
-  const label = document.createElement('span');
-  label.className = 'editorParamsLabel';
-  label.textContent = 'Scroll Speed';
-  label.style.cssText = 'color:var(--field-color,#000);font-size:13px;';
+  const modeRow = document.createElement('div');
+  modeRow.className = 'autoScrollModeRow';
+  const modeLabel = document.createElement('span');
+  modeLabel.textContent = message('auto_scroll_mode', null, 'Mode');
+  const modeValue = document.createElement('span');
+  modeRow.append(modeLabel, modeValue);
 
-  const speedValue = document.createElement('span');
-  speedValue.id = 'autoScrollSpeedValue';
-  speedValue.textContent = '50';
-  speedValue.style.cssText = 'color:var(--field-color,#000);font-weight:bold;font-size:13px;';
+  const speedHeader = document.createElement('div');
+  speedHeader.className = 'autoScrollSpeedHeader';
+  const speedLabel = document.createElement('label');
+  speedLabel.htmlFor = 'autoScrollSpeedSlider';
+  const speedValue = document.createElement('output');
+  speedValue.htmlFor = 'autoScrollSpeedSlider';
+  speedHeader.append(speedLabel, speedValue);
 
-  labelRow.appendChild(label);
-  labelRow.appendChild(speedValue);
-
-  // Slider + number input row
   const controlRow = document.createElement('div');
-  controlRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
-
-  // Speed slider
+  controlRow.className = 'autoScrollControlRow';
+  const slowerButton = document.createElement('button');
+  slowerButton.className = 'autoScrollStepButton';
+  slowerButton.type = 'button';
+  slowerButton.textContent = '−';
+  slowerButton.setAttribute('aria-label', message('auto_scroll_decrease', null, 'Decrease'));
   const slider = document.createElement('input');
   slider.type = 'range';
   slider.id = 'autoScrollSpeedSlider';
-  slider.min = '1';
-  slider.max = '100';
-  slider.value = '50';
-  slider.step = '1';
-  slider.tabIndex = 0;
-  slider.style.cssText = 'flex:1;accent-color:var(--button-hover-color,#0060df);';
+  const fasterButton = document.createElement('button');
+  fasterButton.className = 'autoScrollStepButton';
+  fasterButton.type = 'button';
+  fasterButton.textContent = '+';
+  fasterButton.setAttribute('aria-label', message('auto_scroll_increase', null, 'Increase'));
+  controlRow.append(slowerButton, slider, fasterButton);
 
-  // Number input for precise value
-  const numberInput = document.createElement('input');
-  numberInput.type = 'number';
-  numberInput.id = 'autoScrollSpeedNumber';
-  numberInput.min = '1';
-  numberInput.max = '100';
-  numberInput.value = '50';
-  numberInput.step = '1';
-  numberInput.tabIndex = 0;
-  numberInput.style.cssText = 'width:52px;text-align:center;font-size:13px;padding:2px 4px;' +
-    'background-color:var(--field-bg-color,#fff);color:var(--field-color,#000);' +
-    'border:1px solid var(--field-border-color,#ccc);border-radius:3px;';
+  const rangeLabels = document.createElement('div');
+  rangeLabels.className = 'autoScrollRangeLabels';
+  const rangeStart = document.createElement('span');
+  const rangeEnd = document.createElement('span');
+  rangeLabels.append(rangeStart, rangeEnd);
 
-  // Sync slider <-> number input
-  const updateFromValue = (val) => {
-    val = Math.max(1, Math.min(100, Number(val) || 50));
-    slider.value = val;
-    numberInput.value = val;
-    autoScroll.setSpeed(val);
-    speedValue.textContent = val;
+  const interactionRow = document.createElement('label');
+  interactionRow.className = 'autoScrollInteractionRow';
+  const pauseCheckbox = document.createElement('input');
+  pauseCheckbox.type = 'checkbox';
+  pauseCheckbox.checked = autoScroll.pauseOnInteraction;
+  const interactionText = document.createElement('span');
+  interactionText.textContent = message(
+    'auto_scroll_pause_interaction',
+    null,
+    'Pause briefly while scrolling or selecting text'
+  );
+  interactionRow.append(pauseCheckbox, interactionText);
+
+  panelContent.append(header, modeRow, speedHeader, controlRow, rangeLabels, interactionRow);
+  panel.appendChild(panelContent);
+  wrapper.append(button, settingsButton, panel);
+  anchor.after(wrapper);
+
+  const timer = document.createElement('span');
+  timer.id = 'autoScrollTimer';
+  timer.className = 'toolbarLabel autoScrollTimer';
+  timer.hidden = true;
+  wrapper.after(timer);
+
+  let configuredMode = null;
+  let saveTimer = null;
+
+  const modeNames = {
+    [ScrollMode.VERTICAL]: ['auto_scroll_mode_vertical', 'Vertical'],
+    [ScrollMode.HORIZONTAL]: ['auto_scroll_mode_horizontal', 'Horizontal'],
+    [ScrollMode.WRAPPED]: ['auto_scroll_mode_wrapped', 'Wrapped'],
+    [ScrollMode.PAGE]: ['auto_scroll_mode_page', 'Page']
   };
 
-  slider.oninput = () => updateFromValue(slider.value);
-  numberInput.onchange = () => updateFromValue(numberInput.value);
-  numberInput.onkeydown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      updateFromValue(numberInput.value);
+  const formatClock = seconds => {
+    const rounded = Math.max(0, Math.ceil(seconds));
+    const hours = Math.floor(rounded / 3600);
+    const minutes = Math.floor((rounded % 3600) / 60);
+    const secs = rounded % 60;
+    return hours > 0
+      ? [hours, minutes, secs].map(value => String(value).padStart(2, '0')).join(':')
+      : [minutes, secs].map(value => String(value).padStart(2, '0')).join(':');
+  };
+
+  const configureSlider = mode => {
+    if (configuredMode === mode) {
+      return;
+    }
+    configuredMode = mode;
+    const pageMode = mode === ScrollMode.PAGE;
+    slider.min = pageMode ? '2' : '5';
+    slider.max = pageMode ? '30' : '200';
+    slider.step = pageMode ? '1' : '5';
+    slider.value = String(pageMode ? autoScroll.pageInterval : autoScroll.pixelsPerSecond);
+    speedLabel.textContent = message(
+      pageMode ? 'auto_scroll_page_interval' : 'auto_scroll_speed',
+      null,
+      pageMode ? 'Time per page' : 'Scroll speed'
+    );
+    rangeStart.textContent = pageMode ? '2 s' : message('auto_scroll_slow', null, 'Slow');
+    rangeEnd.textContent = pageMode ? '30 s' : message('auto_scroll_fast', null, 'Fast');
+  };
+
+  const updateSpeedValue = () => {
+    const pageMode = autoScroll.scrollMode === ScrollMode.PAGE;
+    speedValue.value = pageMode
+      ? message('auto_scroll_seconds', String(autoScroll.pageInterval), `${autoScroll.pageInterval} s`)
+      : `${autoScroll.pixelsPerSecond} px/s`;
+    speedValue.textContent = speedValue.value;
+  };
+
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => chrome.storage.local.set({
+      autoScrollPixelsPerSecond: autoScroll.pixelsPerSecond,
+      autoScrollPageInterval: autoScroll.pageInterval,
+      autoScrollPauseOnInteraction: autoScroll.pauseOnInteraction
+    }), 200);
+  };
+
+  const renderState = ({enabled, temporarilyPaused, mode, reason} = {
+    enabled: autoScroll.enabled,
+    temporarilyPaused: autoScroll.temporarilyPaused,
+    mode: autoScroll.scrollMode,
+    reason: autoScroll.lastReason
+  }) => {
+    configureSlider(mode);
+    updateSpeedValue();
+    const [modeKey, modeFallback] = modeNames[mode] || modeNames[ScrollMode.VERTICAL];
+    modeValue.textContent = message(modeKey, null, modeFallback);
+
+    const completed = reason === 'complete';
+    const stateKey = completed
+      ? 'auto_scroll_completed'
+      : temporarilyPaused
+        ? 'auto_scroll_interaction_paused'
+        : enabled
+          ? 'auto_scroll_playing'
+          : 'auto_scroll_stopped';
+    const stateFallback = completed
+      ? 'Completed'
+      : temporarilyPaused
+        ? 'Paused briefly'
+        : enabled
+          ? 'Playing'
+          : 'Paused';
+    state.textContent = message(stateKey, null, stateFallback);
+    state.dataset.state = completed ? 'complete' : temporarilyPaused ? 'waiting' : enabled ? 'playing' : 'stopped';
+
+    button.classList.toggle('toggled', enabled);
+    button.classList.toggle('temporarilyPaused', temporarilyPaused);
+    button.setAttribute('aria-pressed', String(enabled));
+    button.title = message(
+      enabled ? 'auto_scroll_pause_title' : 'auto_scroll_start_title',
+      null,
+      enabled ? 'Pause auto scroll (Ctrl/Command + Shift + A)' : 'Start auto scroll (Ctrl/Command + Shift + A)'
+    );
+    buttonLabel.textContent = button.title;
+
+    if (!enabled) {
+      timer.hidden = true;
+      timer.textContent = '';
     }
   };
 
-  controlRow.appendChild(slider);
-  controlRow.appendChild(numberInput);
+  const showPanel = () => {
+    panel.classList.remove('hidden');
+    panel.hidden = false;
+    settingsButton.setAttribute('aria-expanded', 'true');
+    renderState();
+  };
 
-  // Speed labels (min/max)
-  const rangeLabels = document.createElement('div');
-  rangeLabels.style.cssText = 'display:flex;justify-content:space-between;font-size:10px;color:var(--field-color,#666);padding:0 2px;';
-  rangeLabels.innerHTML = '<span>1 (Slow)</span><span>100 (Fast)</span>';
+  const hidePanel = () => {
+    panel.classList.add('hidden');
+    panel.hidden = true;
+    settingsButton.setAttribute('aria-expanded', 'false');
+  };
 
-  panelContent.appendChild(labelRow);
-  panelContent.appendChild(controlRow);
-  panelContent.appendChild(rangeLabels);
-  panel.appendChild(panelContent);
+  autoScroll.onStateChange = renderState;
+  autoScroll.onTimeChange = seconds => {
+    if (!autoScroll.enabled || !Number.isFinite(seconds)) {
+      timer.hidden = true;
+      timer.textContent = '';
+      return;
+    }
+    const clock = formatClock(seconds);
+    timer.hidden = false;
+    timer.textContent = `≈ ${clock}`;
+    timer.title = message('auto_scroll_remaining', clock, `About ${clock} left`);
+    timer.setAttribute('aria-label', timer.title);
+  };
 
-  // ===== Assemble =====
-  wrapper.appendChild(button);
-  wrapper.appendChild(panel);
-  document.querySelector('.toolbar #editorStamp').after(wrapper);
+  button.addEventListener('click', event => {
+    event.stopPropagation();
+    autoScroll.toggle();
+  });
 
-  // Timer label next to the auto-scroll button in toolbar
-  const timerSpan = document.createElement('span');
-  timerSpan.id = 'autoScrollTimer';
-  timerSpan.className = 'toolbarLabel';
-  timerSpan.style.cssText = 'display:none;font-size:12px;line-height:var(--toolbar-height,32px);' +
-    'padding:0 8px;color:var(--field-color,#555);white-space:nowrap;user-select:none;';
-  wrapper.after(timerSpan);
-  autoScroll._timerEl = timerSpan;
+  settingsButton.addEventListener('click', event => {
+    event.stopPropagation();
+    panel.hidden ? showPanel() : hidePanel();
+  });
 
-  // ===== Close panel on outside click =====
-  document.addEventListener('click', (e) => {
-    if (!wrapper.contains(e.target)) {
+  slider.addEventListener('input', () => {
+    if (autoScroll.scrollMode === ScrollMode.PAGE) {
+      autoScroll.setPageInterval(slider.value);
+    }
+    else {
+      autoScroll.setPixelsPerSecond(slider.value);
+    }
+    updateSpeedValue();
+    scheduleSave();
+  });
+
+  const stepSlider = direction => {
+    slider.value = String(clamp(
+      Number(slider.value) + direction * Number(slider.step),
+      Number(slider.min),
+      Number(slider.max),
+      Number(slider.value)
+    ));
+    slider.dispatchEvent(new Event('input', {bubbles: true}));
+  };
+  slowerButton.addEventListener('click', () => stepSlider(-1));
+  fasterButton.addEventListener('click', () => stepSlider(1));
+
+  pauseCheckbox.addEventListener('change', () => {
+    autoScroll.setPauseOnInteraction(pauseCheckbox.checked);
+    scheduleSave();
+  });
+
+  document.addEventListener('click', event => {
+    if (!wrapper.contains(event.target)) {
       hidePanel();
-      button.setAttribute('aria-expanded', 'false');
     }
   });
 
-  // Button click also toggles panel visibility when already active
-  const originalClick = button.onclick;
-  button.onclick = (e) => {
-    e.stopPropagation();
-    originalClick(e);
-    // When auto-scroll is active, show the panel
-    if (autoScroll.enabled) {
-      showPanel();
-      button.setAttribute('aria-expanded', 'true');
+  panel.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      hidePanel();
+      settingsButton.focus();
     }
+  });
+
+  document.addEventListener('document-open', () => {
+    autoScroll.stop('document');
+    button.disabled = true;
+  });
+
+  chrome.storage.local.get(AUTO_SCROLL_DEFAULTS, preferences => {
+    autoScroll.setPixelsPerSecond(preferences.autoScrollPixelsPerSecond);
+    autoScroll.setPageInterval(preferences.autoScrollPageInterval);
+    autoScroll.setPauseOnInteraction(preferences.autoScrollPauseOnInteraction);
+    pauseCheckbox.checked = autoScroll.pauseOnInteraction;
+    configuredMode = null;
+    renderState();
+  });
+
+  const enableForDocument = () => {
+    button.disabled = false;
+    renderState();
   };
+  const ready = PDFViewerApplication?.initializedPromise || Promise.resolve();
+  ready.then(() => {
+    if (PDFViewerApplication?.pdfDocument) {
+      enableForDocument();
+    }
+    PDFViewerApplication?.eventBus?.on('documentloaded', enableForDocument);
+  }).catch(error => console.error('[Auto scroll] Viewer initialization failed', error));
 });
