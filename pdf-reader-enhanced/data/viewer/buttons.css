@@ -27,8 +27,151 @@
   mask-image: url(/data/viewer/autoscroll.svg);
 }
 
-.toolbarButton.autoScrollButton.toggled {
-  background-color: var(--button-hover-color);
+.toolbarButton.autoScrollButton.toggled::before {
+  -webkit-mask-image: url(/data/viewer/autoscroll-pause.svg);
+  mask-image: url(/data/viewer/autoscroll-pause.svg);
+}
+
+.toolbarButton.autoScrollButton.temporarilyPaused::before {
+  opacity: 0.6;
+}
+
+.toolbarButton.autoScrollSettingsButton {
+  width: 22px;
+  margin-inline-start: -5px;
+}
+
+.toolbarButton.autoScrollSettingsButton::before {
+  -webkit-mask-image: url(/data/viewer/autoscroll-settings.svg);
+  mask-image: url(/data/viewer/autoscroll-settings.svg);
+  transform: scale(0.72);
+}
+
+.autoScrollPanel {
+  width: min(310px, calc(100vw - 24px));
+  padding: 8px;
+}
+
+.autoScrollPanelContent {
+  display: grid;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.autoScrollHeader,
+.autoScrollModeRow,
+.autoScrollSpeedHeader,
+.autoScrollRangeLabels,
+.autoScrollControlRow,
+.autoScrollInteractionRow {
+  display: flex;
+  align-items: center;
+}
+
+.autoScrollHeader,
+.autoScrollModeRow,
+.autoScrollSpeedHeader,
+.autoScrollRangeLabels {
+  justify-content: space-between;
+}
+
+.autoScrollHeader {
+  min-height: 24px;
+  font-size: 14px;
+}
+
+.autoScrollState {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--toolbar-icon-bg-color) 10%, transparent);
+  font-size: 11px;
+}
+
+.autoScrollState[data-state="playing"] {
+  color: light-dark(#126b32, #7ee2a1);
+  background: light-dark(#e1f5e8, #173d28);
+}
+
+.autoScrollState[data-state="waiting"] {
+  color: light-dark(#7a4f00, #ffd27a);
+  background: light-dark(#fff2cf, #4a3512);
+}
+
+.autoScrollState[data-state="complete"] {
+  color: light-dark(#165d8f, #8fd3ff);
+  background: light-dark(#e2f2ff, #15364d);
+}
+
+.autoScrollModeRow {
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--toolbar-icon-bg-color) 14%, transparent);
+  color: var(--main-color);
+  font-size: 12px;
+}
+
+.autoScrollModeRow span:last-child,
+.autoScrollSpeedHeader output {
+  font-weight: 600;
+}
+
+.autoScrollSpeedHeader {
+  margin-bottom: -5px;
+  font-size: 13px;
+}
+
+.autoScrollControlRow {
+  gap: 8px;
+}
+
+.autoScrollControlRow input[type="range"] {
+  min-width: 0;
+  flex: 1;
+  accent-color: var(--toggled-btn-bg-color);
+}
+
+.autoScrollStepButton {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--toolbar-icon-bg-color) 18%, transparent);
+  border-radius: 6px;
+  color: var(--main-color);
+  background: transparent;
+  font: 18px/1 message-box;
+  cursor: pointer;
+}
+
+.autoScrollStepButton:hover {
+  background: var(--button-hover-color, rgb(0 0 0 / 0.08));
+}
+
+.autoScrollRangeLabels {
+  margin-top: -8px;
+  padding-inline: 38px;
+  color: color-mix(in srgb, var(--main-color) 68%, transparent);
+  font-size: 10px;
+}
+
+.autoScrollInteractionRow {
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.autoScrollInteractionRow input {
+  margin: 2px 0 0;
+  accent-color: var(--toggled-btn-bg-color);
+}
+
+.autoScrollTimer {
+  padding-inline: 5px 8px;
+  color: var(--main-color);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .toolbarButton:disabled {
@@ -41,6 +184,10 @@ body {
 @media all and (max-width: 750px){
   body {
     --editor-toolbar-base-offset: 42px;
+  }
+
+  .autoScrollTimer {
+    display: none !important;
   }
 }
 

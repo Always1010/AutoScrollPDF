@@ -1,5 +1,81 @@
 {
    "description": {
       "message": "A general-purpose Portable Document Format (PDF) viewer based on Mozilla's PDF.js library"
+   },
+   "auto_scroll_title": {
+      "message": "Auto scroll"
+   },
+   "auto_scroll_settings": {
+      "message": "Auto-scroll settings"
+   },
+   "auto_scroll_start_title": {
+      "message": "Start auto scroll (Ctrl/Command + Shift + A)"
+   },
+   "auto_scroll_pause_title": {
+      "message": "Pause auto scroll (Ctrl/Command + Shift + A)"
+   },
+   "auto_scroll_mode": {
+      "message": "Mode"
+   },
+   "auto_scroll_mode_vertical": {
+      "message": "Vertical"
+   },
+   "auto_scroll_mode_horizontal": {
+      "message": "Horizontal"
+   },
+   "auto_scroll_mode_wrapped": {
+      "message": "Wrapped"
+   },
+   "auto_scroll_mode_page": {
+      "message": "Page"
+   },
+   "auto_scroll_speed": {
+      "message": "Scroll speed"
+   },
+   "auto_scroll_page_interval": {
+      "message": "Time per page"
+   },
+   "auto_scroll_seconds": {
+      "message": "$TIME$ s",
+      "placeholders": {
+         "time": {
+            "content": "$1"
+         }
+      }
+   },
+   "auto_scroll_slow": {
+      "message": "Slow"
+   },
+   "auto_scroll_fast": {
+      "message": "Fast"
+   },
+   "auto_scroll_decrease": {
+      "message": "Decrease"
+   },
+   "auto_scroll_increase": {
+      "message": "Increase"
+   },
+   "auto_scroll_pause_interaction": {
+      "message": "Pause briefly while scrolling or selecting text"
+   },
+   "auto_scroll_playing": {
+      "message": "Playing"
+   },
+   "auto_scroll_stopped": {
+      "message": "Paused"
+   },
+   "auto_scroll_interaction_paused": {
+      "message": "Paused briefly"
+   },
+   "auto_scroll_completed": {
+      "message": "Completed"
+   },
+   "auto_scroll_remaining": {
+      "message": "About $TIME$ left",
+      "placeholders": {
+         "time": {
+            "content": "$1"
+         }
+      }
    }
 }
