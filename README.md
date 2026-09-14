@@ -15,7 +15,7 @@
 ## 项目架构
 
 ```
-pdf-reader-enhanced/
+仓库根目录（同时也是扩展加载目录）/
 ├── manifest.json          # Manifest V3 扩展声明
 ├── worker.js              # 后台 Service Worker
 ├── context.js             # 右键菜单处理
@@ -81,7 +81,7 @@ Edge 打开 PDF
 
 1. 打开 `edge://extensions`（Chrome: `chrome://extensions`）
 2. 开启"开发人员模式"
-3. 点击"加载解压缩的扩展" → 选择 `pdf-reader-enhanced/`
+3. 点击"加载解压缩的扩展" → 直接选择克隆后的仓库根目录
 
 ### 默认打开本地 PDF
 
@@ -95,7 +95,7 @@ Edge 打开 PDF
 
 ### 注意事项
 
-- 扩展目录中的 `viewer.mjs` 是 PDF.js 的 webpack 打包产物，**不要直接修改**
+- `data/pdf.js/web/viewer.mjs` 是 PDF.js 的 webpack 打包产物，**不要直接修改**
 - 所有定制功能通过 `data/viewer/` 下的脚本注入，遵循 PDF.js 的全局 API
 - `manifest.json` 已移除 `key` 和 `update_url`，不会与商店版本冲突
 - 修改后需在扩展管理页点刷新 🔄 使改动生效
