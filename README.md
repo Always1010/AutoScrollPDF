@@ -100,6 +100,7 @@ Edge 打开 PDF
 - `manifest.json` 已移除 `key` 和 `update_url`，不会与商店版本冲突
 - 修改后需在扩展管理页点刷新 🔄 使改动生效
 - 自动滚动控制器测试：`node tests/autoscroll-controller.test.cjs`
+- 升级 PDF.js 或 pdf-lib 前请阅读 [`docs/UPSTREAM.md`](docs/UPSTREAM.md)
 
 ## 致谢
 
