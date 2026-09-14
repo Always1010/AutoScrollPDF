@@ -8,7 +8,6 @@ const vm = require('node:vm');
 const sourcePath = path.join(
   __dirname,
   '..',
-  'pdf-reader-enhanced',
   'data',
   'viewer',
   'autoscroll',

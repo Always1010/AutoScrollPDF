@@ -11,7 +11,7 @@ desktop.ini
 session-log.md
 
 # Chrome Store metadata
-pdf-reader-enhanced/_metadata/
+/_metadata/
 
 # Node (if any tooling is added later)
 node_modules/
