@@ -4,7 +4,7 @@
 
 ## 项目概况
 
-这是一个基于 PDF.js 的浏览器扩展（Manifest V3），核心代码在 `pdf-reader-enhanced/` 目录。通过加载解压缩的扩展在 Edge/Chrome 中运行。
+这是一个基于 PDF.js 的浏览器扩展（Manifest V3）。仓库根目录就是扩展加载目录，克隆后可直接通过“加载解压缩的扩展”在 Edge/Chrome 中运行。
 
 ## 修改前必须出计划
 
